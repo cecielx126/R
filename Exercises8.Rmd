@@ -1,0 +1,617 @@
+---
+title: "FPP3"
+author: "E8"
+date: "4/17/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(fpp3)
+
+# Q1
+
+## a
+data  <-aus_livestock %>% filter(State == 'Victoria', Animal  == 'Pigs')
+data %>%  model(ETS(Count ~ error("A") + trend("N") + season("N"))) -> fit
+report(fit) # fitted model
+
+# b
+augment(fit) %>% select(.resid) %>% unlist() %>% sd() -> sds
+pred = fit %>% forecast(h = 4) %>% 
+  hilo(level = c(95))
+
+pred # computed interval by R
+
+pred$.mean +  1.96 * sds # upper
+pred$.mean -  1.96 * sds # lower
+
+
+
+# Q2
+
+## a
+
+fn_ses <- function(y, a, l){
+  preds = c(l)
+  for(i in 1:length(y)){
+    l <- a*y[i] + (1 - a)*l 
+    preds = c(preds, l)
+  }
+  print("next: " %>% paste(., l, sep = " "))
+  return(preds[-length(preds)])
+}
+
+# compare ses and SES using pigs data
+ests <- coefficients(fit)$estimate
+
+
+fn_preds = fn_ses(data$Count, a = ests[1], l = ests[2])
+
+
+cbind(augment(fit)[,6], fn_preds) %>% head()
+
+
+# Q3
+
+
+fr <- function(x, y ) {  
+  l = x[2]
+  preds = c(l)
+  for(i in 1:length(y)){
+    l <- x[1]*y[i] + (1 - x[1])* l
+    preds = c(preds, l)
+  }
+  preds = preds[-length(preds)]
+  
+  sum((preds - y ) ** 2)
+}
+
+opt = optim(c(0.5,data$Count[1]),y = data$Count,  fr)
+opt
+
+# Q4
+
+
+a = opt$par[1]
+b = opt$par[2]
+
+preds = fn_ses(data$Count, a, b)
+
+
+
+
+# Q5
+
+
+## a
+
+global_economy %>% filter(Code == 'FRA') -> fra
+
+fra %>% autoplot(Exports)
+
+## b
+
+fra %>% filter(Year < 2010) ->tr
+fra %>% filter(Year >= 2010) ->te
+
+tr %>% model(
+  
+  model_ANN  = ETS(Exports  ~ error("A") + trend("N") + season("N"))
+  
+) -> fit_ann
+
+
+fit_ann %>% forecast(h = nrow(te)) %>% autoplot(fra)
+
+## c
+
+accuracy(fit_ann)
+
+
+## d
+
+
+tr %>% model(
+  
+  model_AAN  = ETS(Exports  ~ error("A") + trend("A") + season("N"))
+  
+) -> fit_aan
+
+
+fit_aan %>% forecast(h = nrow(te)) %>% autoplot(fra)
+
+
+accuracy(fit_aan)
+
+# e
+
+
+tr %>% model(
+  
+  model_ANN  = ETS(Exports  ~ error("A") + trend("N") + season("N")),
+  model_AAN = ETS(Exports  ~ error("A") + trend("A") + season("N"))
+  
+) -> fit_ets
+
+
+fit_ets %>% forecast(h = nrow(te))  %>% accuracy(fra) 
+
+# f
+
+## ANN
+
+augment(fit_ann) %>% select(.resid) %>% as.data.frame() %>% summarise(
+  mean(.resid ** 2) ** 0.5
+  
+) -> sds
+
+pred = fit_ann %>% forecast(h = 1) %>% 
+  hilo(level = c(95))
+
+pred # computed interval by R
+
+pred$.mean +  1.96 * sds # upper
+pred$.mean -  1.96 * sds # lower
+
+## AAN
+
+augment(fit_aan) %>% select(.resid) %>% as.data.frame() %>% summarise(
+  mean(.resid ** 2) ** 0.5
+  
+) -> sds
+
+pred = fit_aan %>% forecast(h = 1) %>% 
+  hilo(level = c(95))
+
+pred # computed interval by R
+
+pred$.mean +  1.96 * sds # upper
+pred$.mean -  1.96 * sds # lower
+
+
+# Q6
+
+global_economy %>% filter(Code == 'CHN') -> cn
+
+cn %>% filter(Year < 2010) ->tr
+cn %>% filter(Year >= 2010) ->te
+
+
+
+fit_ets <- tr %>%
+  model(
+    ses = ETS(Exports ~ error("A") + trend("N") + season("N")),
+    holt = ETS(Exports ~ error("A") + trend("A") + season("N")),
+    damped = ETS(Exports ~ error("A") + trend("Ad") + season("N"))
+
+  )
+
+fit_ets %>% forecast(h = nrow(te))  %>% accuracy(cn) 
+
+# Q7
+
+aus_production %>%
+  model(auto = ETS(Gas),
+        
+        damped = ETS(Gas ~ error("A") + trend("Ad") + season("M"))
+        ) -> fit
+
+
+fit$auto
+
+
+fit %>% accuracy()
+
+# Q8
+
+
+## a
+
+set.seed(12345678)
+myseries <- aus_retail %>%
+  filter(`Series ID` == sample(aus_retail$`Series ID`,1))
+
+myseries %>% autoplot() # seasonality indices increased when the retail sales increased
+
+
+myseries%>% filter(year(Month) <= 2010) ->tr
+myseries%>% filter(year(Month) > 2010) ->te
+
+
+fit_hm <- tr %>%
+  model(
+   
+    damped = ETS(Turnover ~ error("M") + trend("A") + season("M")),
+    multiplicative = ETS(Turnover ~ error("M") + trend("Ad") + season("M")),
+
+  )
+
+
+
+## c
+
+fit_hm  %>% accuracy() 
+
+## d
+
+gg_tsresiduals(
+  
+ tr %>%
+    model(
+      
+      damped = ETS(Turnover ~ error("M") + trend("A") + season("M")),
+
+      
+    )
+  
+  
+  
+)
+
+
+gg_tsresiduals(
+  
+   tr %>%
+    model(
+      
+      multiplicative = ETS(Turnover ~ error("M") + trend("Ad") + season("M"))
+      
+      
+    )
+  
+  
+  
+)
+
+
+# e
+
+
+fit_hm %>% forecast(h = nrow(te)) %>% accuracy(myseries)
+
+
+
+## 9
+lambda <- myseries %>%
+  features(Turnover, features = guerrero) %>%
+  pull(lambda_guerrero)
+
+dcmp <- tr %>%
+  model(stl = STL(box_cox(Turnover, lambda)))
+
+dcmp %>% accuracy()
+
+
+# 10
+
+## a
+
+tt = tourism %>% index_by(Quarter) %>% summarise(n = sum(Trips))
+
+tt %>% autoplot()
+
+
+## b
+
+tt %>% filter(year(Quarter) < 2016) ->tr
+tt %>% filter(year(Quarter) >= 2016)->te
+
+# b
+dcmp <- tr %>%
+  model(stl = STL(n))
+
+components(dcmp) %>% autoplot()
+
+# c
+my_dcmp_spec <- decomposition_model(
+  STL(n),
+  ETS(season_adjust ~ error("M") + trend("Ad") + season("M"))
+)
+      
+tr  %>%
+  model(my_dcmp_spec) -> m1
+m1 %>% 
+  forecast(h="2 years")  -> pred
+pred
+
+
+
+# d
+
+
+my_dcmp_spec <- decomposition_model(
+  STL(n),
+  ETS(season_adjust ~ error("A") + trend("N") + season("N"))
+)
+
+tr  %>%
+  model(my_dcmp_spec) -> m2
+m2 %>% 
+  forecast(h="2 years")  -> pred
+pred
+
+
+# E
+
+my_dcmp_spec <- decomposition_model(
+  STL(n),
+  ETS(season_adjust )
+)
+
+tr  %>%
+  model(my_dcmp_spec) ->at
+report(at)
+
+
+# f
+
+m1 %>% accuracy()
+
+m2 %>% accuracy()
+
+at %>% accuracy()
+
+# g
+
+m1 %>% forecast(h = "2 years") %>% accuracy(tt) # best
+m2 %>% forecast(h = "2 years") %>% accuracy(tt)
+at %>% forecast(h = "2 years") %>% accuracy(tt)
+
+
+# h
+
+gg_tsresiduals(m1)
+
+# Q11
+
+nz = aus_arrivals %>% filter(Origin == "NZ")
+
+nz %>% autoplot()
+
+#b 
+
+
+nz %>% filter(year(Quarter) < 2011) ->tr
+nz %>% filter(year(Quarter) >= 2011)->te
+
+tr %>%
+  model(
+    
+    multiplicative = ETS(Arrivals ~ error("M") + trend("A") + season("M"))
+    
+    
+  ) -> fit
+
+
+fit %>% forecast(h = "2 years") -> pred
+
+pred  %>% autoplot()
+
+
+# c
+
+# seasonality indices increased when the arrival increased
+
+
+# d
+
+tr %>%
+  model(
+    
+    log = ETS(log(Arrivals)),
+    
+    ets = ETS(Arrivals ~ error("M") + trend("A") + season("M")),
+    
+    nav = NAIVE(Arrivals),
+    
+    stl = decomposition_model(
+      STL(log(Arrivals)),
+      ETS(season_adjust )
+    )
+    
+    
+  ) -> fit_m
+
+
+fit_m %>% forecast(h = "2 years") %>% accuracy(nz)
+
+
+tr %>%
+  model(
+    
+
+    
+    ets = ETS(Arrivals ~ error("M") + trend("A") + season("M")),
+    
+
+    
+  )  %>%  gg_tsresiduals()
+
+
+
+# 12
+
+
+aus_production  %>% stretch_tsibble(.init = 20,.step = 4) -> mystr
+
+mystr %>%  model(
+  
+  ets = ETS(Cement ),
+  ss = SNAIVE(Cement )
+  
+) -> fit
+
+fit %>% forecast(h = 4) %>%
+  group_by(.id) %>%
+  mutate(h = row_number()) %>%
+  ungroup() %>%
+  as_fable(response = "Cement", distribution = Cement ) %>%
+  accuracy(aus_production, by = c( ".model"))
+
+
+
+
+# 12
+
+# ausproduction
+
+## beer
+tr = aus_production %>% filter(year(Quarter  ) < max(year(Quarter  )) -2 )
+te = aus_production %>% filter(year(Quarter  ) >= max(year(Quarter  )) -2 )
+
+
+tr %>%
+  model(
+    
+    log = ETS(log(Beer)),
+    
+    ets = ETS(Beer ~ error("M") + trend("A") + season("M")),
+    
+    nav = NAIVE(Beer),
+    
+    stl = decomposition_model(
+      STL(log(Beer)),
+      ETS(season_adjust )
+    )
+    
+    
+  ) -> fit_m
+
+
+fit_m %>% forecast(h = "3 years") %>% accuracy(aus_production)
+
+
+## beer
+tr = aus_production %>% drop_na() %>% filter(year(Quarter  ) < max(year(Quarter  )) -2 )
+te = aus_production %>% drop_na() %>% filter(year(Quarter  ) >= max(year(Quarter  )) -2 )
+
+
+tr %>%
+  model(
+    
+    log = ETS(log(Bricks  )),
+    
+    ets = ETS(Bricks   ~ error("M") + trend("A") + season("M")),
+    
+    nav = NAIVE(Bricks  ),
+    
+    stl = decomposition_model(
+      STL(Bricks),
+      ETS(season_adjust )
+    )
+    
+    
+  ) -> fit_m
+
+
+fit_m %>% forecast(h = "3 years") %>% accuracy(aus_production) %>% arrange(RMSE )
+
+# PBS
+
+# A10
+
+PBS %>% filter(ATC2   == "A10") -> drug
+tr = drug %>% filter(year(Month   ) < max(year(Month   )) -2 )
+te = drug %>% filter(year(Month   ) >=  max(year(Month   )) -2 )
+tr %>%
+  model(
+    
+    log = ETS(log(Cost  )),
+    
+    ets = ETS(Cost   ~ error("M") + trend("A") + season("M")),
+    
+    nav = NAIVE(Cost  ),
+    
+    stl = decomposition_model(
+      STL(Cost),
+      ETS(season_adjust )
+    )
+    
+    
+  ) -> fit_m
+
+
+fit_m %>% forecast(h = "3 years") %>% accuracy(drug) %>%
+  select(-c(2:6)) %>% group_by(.model) %>%
+  summarise(across(.fns = mean)) %>% arrange(RMSE)
+
+  
+
+# H02
+
+PBS %>% filter(ATC2   == "H02") -> drug
+tr = drug %>% filter(year(Month   ) < max(year(Month   )) -2 )
+te = drug %>% filter(year(Month   ) >=  max(year(Month   )) -2 )
+tr %>%
+  model(
+    
+    log = ETS(log(Cost  )),
+    
+    ets = ETS(Cost   ~ error("M") + trend("A") + season("M")),
+    
+    nav = NAIVE(Cost  ),
+    
+    stl = decomposition_model(
+      STL(Cost),
+      ETS(season_adjust )
+    )
+    
+    
+  ) -> fit_m
+
+
+fit_m %>% forecast(h = "3 years") %>% accuracy(drug) %>%
+  select(-c(2:6)) %>% group_by(.model) %>%
+  summarise(across(.fns = mean)) %>% arrange(RMSE)
+
+
+# 14
+
+# a
+
+tt %>% model(ETS(n)) ->m 
+m %>% report()
+m %>% accuracy()
+m %>% gg_tsresiduals()
+
+
+
+gafa_stock %>% filter(Symbol == gafa_stock$Symbol[1]) %>%
+  
+  model(ETS(Close)) ->m 
+m %>% report()
+m %>% accuracy()
+
+
+pelt %>%model(ETS(Lynx)) ->m 
+m %>% report()
+m %>% accuracy()
+m %>% gg_tsresiduals()
+
+
+
+#b 
+
+pelt %>% autoplot(Lynx)
+
+
+# 15
+
+nz %>% filter(year(Quarter) < 2011) ->tr
+nz %>% filter(year(Quarter) >= 2011)->te
+
+tr %>%
+  model(
+    
+    multiplicative = ETS(Arrivals ~ error("M") + trend("A") + season("M"))
+    
+    
+  ) -> fit
+augment(fit) %>% select(.fitted)
+```
+

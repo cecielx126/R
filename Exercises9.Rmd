@@ -1,0 +1,129 @@
+---
+title: "FPP3"
+author: "E9"
+date: "4/17/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# Q1
+
+## a
+They all indicate that the data are white noise, as we expect 95% of the spikes in the ACF to lie within ±2/√T ± 2 / T where T is the length of the time series.
+
+## b
+
+Ts are different.
+
+
+# Q2
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Load_packages}
+
+library(fpp3)
+
+
+```
+
+2. A classic example of a non-stationary series is the daily closing IBM stock price series (data set ibmclose). Use R to plot the daily closing prices for IBM stock and the ACF and PACF. Explain how each plot shows that the series is non-stationary and should be differenced.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Question2}
+
+google_2015 <- gafa_stock %>%
+  filter(Symbol == "AMZN") 
+google_2015  %>% autoplot()
+google_2015 %>% ACF(Close) %>% 
+  autoplot() + labs(subtitle = "AMZN closing stock price")
+google_2015 %>% ACF(difference(Close)) %>% 
+  autoplot() + labs(subtitle = "Changes in AMZN cl")
+
+```
+
+
+3. 
+
+
+```{r}
+global_economy %>% filter(Code == 'TUR') -> df
+df %>%
+  features(GDP %>% log() %>% difference(), features = unitroot_kpss)
+```
+
+
+
+
+```{r}
+aus_accommodation %>% filter(State  == 'Tasmania') -> df
+df %>%
+  features(Takings %>% log() %>% difference(), features = unitroot_kpss)
+```
+
+
+
+```{r}
+souvenirs  -> df
+df %>%
+  features(Sales %>% log() %>% difference(), features = unitroot_kpss)
+```
+
+
+
+
+
+### first equation : wt = (yt^(0.5) - 1)/(0.5)
+### second equation : (1 - B)(1 - B^12)wt = et, where et is a white noise series.
+
+
+5. For your retail data (from Exercise 3 in Section 2.10), find the appropriate order of differencing (after transformation if necessary) to obtain stationary data.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, Question5}
+
+set.seed(12345678)
+myseries <- aus_retail %>%
+  filter(`Series ID` == sample(aus_retail$`Series ID`,1))
+
+library(forecast)
+BoxCox.lambda(myseries$Turnover) ->lambda
+
+
+myseries %>%
+  features(box_cox(Turnover, lambda) %>%
+             difference(), features = unitroot_kpss)
+
+
+myseries %>% autoplot((box_cox(Turnover, lambda) %>%
+             difference()))
+
+```
+
+6. Use R to simulate and plot some data from simple ARIMA models.
+
+
+
+## a
+
+
+```{r}
+y <- numeric(100)
+e <- rnorm(100)
+for(i in 2:100)
+  y[i] <- 0.6*y[i-1] + e[i]
+sim <- tsibble(idx = seq_len(100), y = y, index = idx)
+```
+
+## b
+
+
+```{r}
+autoplot(sim)
+```
+
+
+
+larger phi leads to higher variation.
+

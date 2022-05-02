@@ -1,0 +1,70 @@
+---
+title: "TSA"
+author: "Wang Jian"
+date: "2022/5/2"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The sample data in this assignment is the daily logarithmic return of the Nasdaq Composite from May 2, 2021 to April 29, 2022
+
+load the data
+```{r}
+df <- read.csv("C:/Users/84382/Desktop/NASDQ.csv",header = T)
+colnames(df) <- c("date","close")
+```
+
+load the packages
+```{r}
+library(tseries)
+library(forecast)
+library(moments)
+```
+
+
+```{r}
+logret <- diff(log(cls))
+plot(logret,type="l")
+summary(logret)
+std(logret)
+skewness(logret)
+kurtosis(logret)
+```
+
+```{r}
+acf(logret)
+pacf(logret)
+acf(logret^2)
+```
+
+prediction step is 20
+
+using ar(1) model
+```{r}
+h = 20
+L = length(logret)
+predict1 <- predict(arima(logret[1:(L-h)],order = c(1,0,0)),n.ahead = h)
+mse1 <- mean((logret[(L-h+1):L]-predict1$pred)^2)
+```
+
+using ma(1) model
+```{r}
+predict2 <- predict(arima(logret[1:(L-h)],order = c(0,0,1)),n.ahead = h)
+mse2 <- mean((logret[(L-h+1):L]-predict2$pred)^2)
+```
+
+using arma model
+```{r}
+predict3 <- predict(auto.arima(logret[1:(L-h)]),n.ahead = h)
+mse3 <- mean((logret[(L-h+1):L]-predict3$pred)^2)
+```
+
+```{r}
+mse = data.frame(ar_1 = mse1,ma_1 = mse2,arma = mse3)
+mse
+```
+
+the arma model has Minimum mean squared error,so the arma model is best estimated!

@@ -1,0 +1,187 @@
+library(tidyverse)
+library(tensorflow)
+library(keras)
+air_vist = read_csv("recruit-restaurant-visitor-forecasting/air_visit_data.csv/air_visit_data.csv")
+head(air_vist)
+test_vist = read_csv("recruit-restaurant-visitor-forecasting/sample_submission.csv/sample_submission.csv")
+
+air_type = read_csv("recruit-restaurant-visitor-forecasting/air_store_info.csv/air_store_info.csv")
+
+test_data = test_vist %>% separate(id, sep = "_2017", into = c("stro_id", "date"))
+test_data$date = paste(2017, test_data$date, sep = "")
+ids = test_data$stro_id %>% unique()
+train_df = air_vist %>% filter(air_store_id %in% ids)
+
+
+head(air_type)
+
+
+
+
+par(mfrow = c(3,3))
+for(i in 1: 9){
+  
+  sample_df = train_df %>% filter(air_store_id == sample(train_df$air_store_id, 1))
+  plot(sample_df$visit_date, sample_df$visitors, type = "l")
+  
+  
+}
+
+lg_df = pivot_wider(train_df, names_from = visit_date , values_from =visitors )
+wd_df = lg_df%>%
+  pivot_longer(cols = colnames(lg_df)[-1])
+
+train_df$visitors %>% is.na() %>% sum()
+wd_df$value %>% is.na() %>% sum()
+wd_df$value[wd_df$value %>% is.na()] = 0
+
+# wd_df =wd_df %>% filter(air_store_id %in% unique(wd_df$air_store_id)[1:2])
+
+
+x_train_all =NA
+y_train_all = NA
+x_test_all = NA
+library(abind)
+
+for(i in 1: length(unique(wd_df$air_store_id))){
+  
+  
+  sampe_df = wd_df %>% filter(air_store_id == wd_df$air_store_id[i]) %>%
+    arrange(name)
+  
+  # we lag the data 11 times and arrange that into columns
+  prediction <- test_data$date %>% unique() %>% length()
+  lag <- prediction
+  
+  scaled_train <- as.matrix(sampe_df)
+  
+  # we lag the data 11 times and arrange that into columns
+  x_train_data <- t(sapply(
+    1:(nrow(scaled_train) - lag - prediction + 1),
+    function(x) scaled_train[x:(x + lag - 1), 3] %>% as.numeric()
+  ))
+  
+  # now we transform it into 3D form
+  x_train_arr <- array(
+    data = as.numeric(unlist(x_train_data)),
+    dim = c(
+      nrow(x_train_data),
+      lag,
+      1
+    )
+  )
+  
+  y_train_data <- t(sapply(
+    (1 + lag):(nrow(scaled_train) - prediction + 1),
+    function(x) scaled_train[x:(x + prediction - 1), 3] %>% as.numeric()
+  ))
+  
+  y_train_arr <- array(
+    data = as.numeric(unlist(y_train_data)),
+    dim = c(
+      nrow(y_train_data),
+      prediction,1
+    )
+  )
+  
+  
+  x_test_scaled <- sampe_df$value[(nrow(scaled_train) - prediction + 1):nrow(scaled_train)]
+  
+  
+  
+  # this time our array just has one sample, as we intend to perform one 12-months prediction
+  x_pred_arr <- array(
+    data = x_test_scaled,
+    dim = c(
+      1,
+      lag,
+      1
+    )
+  )
+  
+  
+  
+
+  if(x_train_all %>% is.na()){
+
+
+    x_train_all = x_train_arr
+    y_train_all = y_train_arr
+    x_test_all = x_pred_arr
+  }else{
+
+    x_train_all = abind(x_train_all, x_train_arr,along = 3)
+    y_train_all = abind(y_train_all, y_train_arr,along = 3)
+    x_test_all = abind(x_test_all, x_pred_arr,along = 3)
+
+
+  }
+  
+
+}
+
+
+lstm_model <- keras_model_sequential()
+
+lstm_model %>%
+  layer_lstm(units = 50, # size of the layer
+             input_shape = (c(dim(x_train_all)[2], dim(x_train_all)[3])), return_sequences = T) %>%
+  time_distributed(keras::layer_dense(units = 821))
+
+
+
+
+
+
+lstm_model %>%
+  compile(loss = 'mae', optimizer = 'adam')
+
+summary(lstm_model)
+
+
+x_train_all %>% dim()
+y_train_all %>% dim()
+x_test_all %>% dim()
+
+h = lstm_model %>% fit(
+  x = x_train_all,
+  y = y_train_all,
+  batch_size = 64,
+  epochs = 100,
+  verbose = 0,
+  shuffle = FALSE
+)
+
+
+plot(h)
+
+lstm_forecast <- lstm_model %>%
+  predict(x_test_all, batch_size = 1) 
+lstm_forecast %>% tail(1)
+
+x= 1
+
+lstm_forecast[,,821]
+ids = wd_df$air_store_id %>% unique()
+preds = lapply(1: length(wd_df$air_store_id %>% unique()), function(x){
+  
+  
+  idx = ids[x]
+  values = lstm_forecast[,,x]
+  df = data.frame(idx, values, test_data$date %>% unique())
+  colnames(df) = c('stro_id', 'values','date')
+  df
+  
+}) %>% Reduce(rbind, .)
+
+
+
+sub = left_join(test_data, preds)
+# sub$visitors = sub$values
+# sub$values = NULL
+sub$id = paste(sub$stro_id, sub$date, sep = "_")
+sub %>%
+  select(id, values) %>%
+  left_join(test_vist, .) %>% select(id,  values) %>%
+  rename(visitors = values) -> f
+write.csv(f, "submission.csv" ,row.names = FALSE)
